@@ -35,7 +35,7 @@ class HeaderRewriter(object):
         'xml':  ['/xml', '+xml', '.xml', '.rss'],
     }
 
-    PROXY_HEADERS = ['content-type', 'content-disposition', 'content-range',
+    PROXY_HEADERS = ['content-type', 'content-range',
                      'accept-ranges']
 
     URL_REWRITE_HEADERS = ['location', 'content-location', 'content-base']
@@ -43,7 +43,7 @@ class HeaderRewriter(object):
     ENCODING_HEADERS = ['content-encoding']
 
     REMOVE_HEADERS = ['transfer-encoding', 'content-security-policy',
-                      'strict-transport-security']
+                      'strict-transport-security', 'content-disposition']
 
     PROXY_NO_REWRITE_HEADERS = ['content-length']
 
@@ -63,7 +63,6 @@ class HeaderRewriter(object):
         http_cache = None
         if urlrewriter:
             http_cache = urlrewriter.rewrite_opts.get('http_cache')
-
         if content_type:
             text_type = self._extract_text_type(content_type)
             if text_type:
@@ -133,7 +132,6 @@ class HeaderRewriter(object):
 
         for (name, value) in headers:
             lowername = name.lower()
-
             if lowername in self.PROXY_HEADERS:
                 add_header(name, value)
 
