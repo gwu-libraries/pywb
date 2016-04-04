@@ -40,7 +40,7 @@ class ReplayView(object):
         self.content_loader = content_loader
 
         framed = config.get('framed_replay')
-        self.content_rewriter = RewriteContent(is_framed_replay=framed)
+        self.content_rewriter = RewriteContent(is_framed_replay=framed, ds_rules_file=config.get('domain_specific_rules'))
 
         self.head_insert_view = HeadInsertView.init_from_config(config)
 
