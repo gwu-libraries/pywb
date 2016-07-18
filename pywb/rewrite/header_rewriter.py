@@ -79,6 +79,10 @@ class HeaderRewriter(object):
         new_headers = result[0]
         removed_header_dict = result[1]
 
+        # If json or xml, add header to allow CORS
+        if text_type in ('json', 'xml'):
+            new_headers.append(("Access-Control-Allow-Origin", "*"))
+
         if http_cache != None and http_cache != 'pass':
             self._add_cache_headers(new_headers, http_cache)
 

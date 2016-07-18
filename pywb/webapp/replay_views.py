@@ -289,8 +289,9 @@ class ReplayView(object):
             statusline = '302 Internal Redirect'
             cdx = None
 
+        # Access-Control-Allow-Origin for CORS
         status_headers = StatusAndHeaders(statusline,
-                                          [('Location', new_url)])
+                                          [('Location', new_url), ("Access-Control-Allow-Origin", "*")])
 
         return self.response_class(status_headers,
                                    wbrequest=wbrequest,
