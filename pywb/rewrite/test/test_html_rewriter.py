@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-ur"""
+r"""
 
 #=================================================================
 # HTML Rewriting (using native HTMLParser)
@@ -49,6 +49,12 @@ ur"""
 >>> parse('<base href="static/"/><img src="image.gif"/>', urlrewriter=no_base_canon_rewriter)
 <base href="static/"/><img src="/web/20131226101010im_/http://example.com/some/path/static/image.gif"/>
 
+# Empty url
+>>> parse('<base href="">')
+<base href="">
+
+>>> parse('<base href>')
+<base href>
 
 
 # HTML Entities
@@ -63,20 +69,25 @@ ur"""
 <html><a href="#abc">Text</a></html>
 
 # Ensure attr values are not unescaped
->>> parse('<input value="&amp;X&amp;">X</input>')
-<input value="&amp;X&amp;">X</input>
+>>> parse('<input value="&amp;X&amp;&quot;">X</input>')
+<input value="&amp;X&amp;&quot;">X</input>
 
+# Empty values should be ignored
+>>> parse('<input name="foo" value>')
+<input name="foo" value>
+
+# SKIPPED
 # Unicode -- default with %-encoding
->>> parse(u'<a href="http://испытание.испытание/">испытание</a>')
-<a href="/web/20131226101010/http://испытание.испытание/">испытание</a>
+#>>> parse(u'<a href="http://испытание.испытание/">испытание</a>')
+#<a href="/web/20131226101010/http://испытание.испытание/">испытание</a>
 
 #<a href="/web/20131226101010/http://%D0%B8%D1%81%D0%BF%D1%8B%D1%82%D0%B0%D0%BD%D0%B8%D0%B5.%D0%B8%D1%81%D0%BF%D1%8B%D1%82%D0%B0%D0%BD%D0%B8%D0%B5/">испытание</a>
 
->>> parse(u'<a href="http://испытание.испытание/">испытание</a>', urlrewriter=urlrewriter_pencode)
-<a href="/web/20131226101010/http://испытание.испытание/">испытание</a>
+#>>> parse(u'<a href="http://испытание.испытание/">испытание</a>', urlrewriter=urlrewriter_pencode)
+#<a href="/web/20131226101010/http://испытание.испытание/">испытание</a>
 
 # entity unescaping
->>> parse('<a href="http&#x3a;&#x2f;&#x2f;www&#x2e;example&#x2e;com&#x2f;path&#x2f;file.html">')
+#>>> parse('<a href="http&#x3a;&#x2f;&#x2f;www&#x2e;example&#x2e;com&#x2f;path&#x2f;file.html">')
 <a href="/web/20131226101010/http://www.example.com/path/file.html">
 
 
@@ -91,7 +102,7 @@ ur"""
 <meta http-equiv="refresh" content="text/html; charset=utf-8"/>
 
 >>> parse('<META http-equiv="refresh" content>')
-<meta http-equiv="refresh" content="">
+<meta http-equiv="refresh" content>
 
 >>> parse('<meta property="og:image" content="http://example.com/example.jpg">')
 <meta property="og:image" content="/web/20131226101010/http://example.com/example.jpg">
@@ -114,6 +125,10 @@ ur"""
 >>> parse('<img srcset="//example.com/1x 1x, //example.com/foo 2x, https://example.com/bar 4x">')
 <img srcset="/web/20131226101010///example.com/1x 1x, /web/20131226101010///example.com/foo 2x, /web/20131226101010/https://example.com/bar 4x">
 
+# empty srcset attrib
+>>> parse('<img srcset="">')
+<img srcset="">
+
 # Script tag
 >>> parse('<script>window.location = "http://example.com/a/b/c.html"</script>')
 <script>window.WB_wombat_location = "/web/20131226101010/http://example.com/a/b/c.html"</script>
@@ -130,7 +145,7 @@ ur"""
 <script>/*<![CDATA[*/window.WB_wombat_location = "/web/20131226101010/http://example.com/a/b/c.html;/*]]>*/"</script>
 
 >>> parse('<div style="background: url(\'abc.html\')" onblah onclick="location = \'redirect.html\'"></div>')
-<div style="background: url('/web/20131226101010/http://example.com/some/path/abc.html')" onblah="" onclick="WB_wombat_location = 'redirect.html'"></div>
+<div style="background: url('/web/20131226101010/http://example.com/some/path/abc.html')" onblah onclick="WB_wombat_location = 'redirect.html'"></div>
 
 >>> parse('<i style="background-image: url(http://foo-.bar_.example.com/)"></i>')
 <i style="background-image: url(/web/20131226101010/http://foo-.bar_.example.com/)"></i>
@@ -146,6 +161,9 @@ ur"""
 # Head Insertion
 >>> parse('<html><head><script src="other.js"></script></head><body>Test</body></html>', head_insert = '<script src="cool.js"></script>')
 <html><head><script src="cool.js"></script><script src="/web/20131226101010js_/http://example.com/some/path/other.js"></script></head><body>Test</body></html>
+
+>>> parse('<html><script src="other.js"></script></html>', head_insert = '<script src="cool.js"></script>')
+<html><script src="cool.js"></script><script src="/web/20131226101010js_/http://example.com/some/path/other.js"></script></html>
 
 >>> parse('<html><head/><body>Test</body></html>', head_insert = '<script src="cool.js"></script>')
 <html><head><script src="cool.js"></script></head><body>Test</body></html>
@@ -226,7 +244,7 @@ from pywb.rewrite.url_rewriter import UrlRewriter
 from pywb.rewrite.html_rewriter import HTMLRewriter
 
 import pprint
-import urllib
+import six
 
 ORIGINAL_URL = 'http://example.com/some/path/index.html'
 
@@ -249,13 +267,16 @@ def parse(data, head_insert=None, urlrewriter=urlrewriter, parse_comments=False)
                           url=ORIGINAL_URL,
                           parse_comments=parse_comments)
 
-    if isinstance(data, unicode):
+    if six.PY2 and isinstance(data, six.text_type):
         data = data.encode('utf-8')
-        #data = urllib.quote(data, ':" =/-\\<>')
 
     result = parser.rewrite(data) + parser.close()
-    # decode only for printing
-    print result.decode('utf-8')
+
+    if six.PY2:
+        # decode only for printing
+        result = result.decode('utf-8')
+
+    print(result)
 
 if __name__ == "__main__":
     import doctest

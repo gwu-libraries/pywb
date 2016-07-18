@@ -14,9 +14,10 @@ from pywb.framework.wbrequestresponse import WbResponse
 
 from pywb.warc.recordloader import ArcWarcRecordLoader
 from pywb.warc.resolvingloader import ResolvingLoader
+from pywb.warc.pathresolvers import PathResolverMapper
 
-from views import J2TemplateView, init_view
-from replay_views import ReplayView
+from pywb.webapp.views import J2TemplateView, init_view
+from pywb.webapp.replay_views import ReplayView
 from pywb.framework.memento import MementoResponse
 from pywb.utils.timeutils import datetime_to_timestamp
 
@@ -137,7 +138,7 @@ class WBHandler(SearchPageWbUrlHandler):
 
         paths = config.get('archive_paths')
 
-        resolving_loader = ResolvingLoader(paths=paths,
+        resolving_loader = ResolvingLoader(PathResolverMapper()(paths),
                                            record_loader=record_loader)
 
         return ReplayView(resolving_loader, config)
@@ -209,7 +210,7 @@ class StaticHandler(BaseHandler):
             if 'wsgi.file_wrapper' in wbrequest.env:
                 reader = wbrequest.env['wsgi.file_wrapper'](data)
             else:
-                reader = iter(lambda: data.read(), '')
+                reader = iter(lambda: data.read(), b'')
 
             content_type = 'application/octet-stream'
 
@@ -217,9 +218,9 @@ class StaticHandler(BaseHandler):
             if guessed[0]:
                 content_type = guessed[0]
 
-            return WbResponse.text_stream(reader,
-                                          content_type=content_type,
-                                          headers=headers)
+            return WbResponse.bin_stream(reader,
+                                         content_type=content_type,
+                                         headers=headers)
 
         except IOError:
             raise NotFoundException('Static File Not Found: ' +

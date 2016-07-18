@@ -4,28 +4,29 @@ import webencodings
 import yaml
 import re
 
-from chardet.universaldetector import UniversalDetector
+#from chardet.universaldetector import UniversalDetector
 from io import BytesIO
 
-from header_rewriter import RewrittenStatusAndHeaders
+from pywb.rewrite.header_rewriter import RewrittenStatusAndHeaders
 
-from rewriterules import RewriteRules
+from pywb.rewrite.rewriterules import RewriteRules
 
 from pywb.utils.dsrules import RuleSet
 from pywb.utils.statusandheaders import StatusAndHeaders
 from pywb.utils.bufferedreaders import DecompressingBufferedReader
 from pywb.utils.bufferedreaders import ChunkedDataReader, BufferedReader
+from pywb.utils.loaders import to_native_str
 
-from regex_rewriters import JSNoneRewriter, JSLinkOnlyRewriter
+from pywb.rewrite.regex_rewriters import JSNoneRewriter, JSLinkOnlyRewriter
 
 
 #=================================================================
-class RewriteContent:
-    HEAD_REGEX = re.compile(r'<\s*head\b[^>]*[>]+', re.I)
+class RewriteContent(object):
+    HEAD_REGEX = re.compile(b'<\s*head\\b[^>]*[>]+', re.I)
 
-    TAG_REGEX = re.compile(r'^\s*\<')
+    TAG_REGEX = re.compile(b'^\s*\<')
 
-    CHARSET_REGEX = re.compile(r'<meta[^>]*?[\s;"\']charset\s*=[\s"\']*([^\s"\'/>]*)')
+    CHARSET_REGEX = re.compile(b'<meta[^>]*?[\s;"\']charset\s*=[\s"\']*([^\s"\'/>]*)')
 
     BUFF_SIZE = 16384
 
@@ -47,13 +48,11 @@ class RewriteContent:
         return (status_headers, stream)
 
     def _rewrite_headers(self, urlrewriter, rule, status_headers, stream,
-                         urlkey=''):
+                         urlkey='', cookie_rewriter=None):
 
         header_rewriter_class = rule.rewriters['header']
 
-        cookie_rewriter = None
-
-        if urlrewriter:
+        if urlrewriter and not cookie_rewriter:
             cookie_rewriter = urlrewriter.get_cookie_rewriter(rule)
 
         rewritten_headers = (header_rewriter_class().
@@ -78,6 +77,7 @@ class RewriteContent:
 
 
     def _check_encoding(self, rewritten_headers, stream, enc):
+        matched = False
         if (rewritten_headers.
              contains_removed_header('content-encoding', enc)):
 
@@ -88,14 +88,15 @@ class RewriteContent:
                 stream = DecompressingBufferedReader(stream, decomp_type=enc)
 
             rewritten_headers.status_headers.remove_header('content-length')
+            matched = True
 
-        return stream
+        return matched, stream
 
 
 
     def rewrite_content(self, urlrewriter, status_headers, stream,
                         head_insert_func=None, urlkey='',
-                        cdx=None):
+                        cdx=None, cookie_rewriter=None, env=None):
 
         wb_url = urlrewriter.wburl
 
@@ -105,21 +106,26 @@ class RewriteContent:
                                                            stream)
             return (status_headers, self.stream_to_gen(stream), False)
 
-        if wb_url.is_banner_only:
-            urlrewriter = None
+        if urlrewriter and cdx and cdx.get('is_live'):
+            urlrewriter.rewrite_opts['is_live'] = True
 
         rule = self.ruleset.get_first_match(urlkey)
 
         (rewritten_headers, stream) = self._rewrite_headers(urlrewriter,
                                                             rule,
                                                             status_headers,
-                                                            stream)
+                                                            stream,
+                                                            urlkey,
+                                                            cookie_rewriter)
 
         status_headers = rewritten_headers.status_headers
 
-        # use rewritten headers, but no further rewriting needed
-        if rewritten_headers.text_type is None:
-            return (status_headers, self.stream_to_gen(stream), False)
+        res = self.handle_custom_rewrite(rewritten_headers.text_type,
+                                         status_headers,
+                                         stream,
+                                         env)
+        if res:
+            return res
 
         # Handle text content rewriting
         # ====================================================================
@@ -133,10 +139,14 @@ class RewriteContent:
 
         stream_raw = False
         encoding = None
-        first_buff = ''
+        first_buff = b''
 
-        stream = self._check_encoding(rewritten_headers, stream, 'gzip')
-        stream = self._check_encoding(rewritten_headers, stream, 'deflate')
+        for decomp_type in BufferedReader.get_supported_decompressors():
+            matched, stream = self._check_encoding(rewritten_headers,
+                                                   stream,
+                                                   decomp_type)
+            if matched:
+                break
 
         if mod == 'js_':
             text_type, stream = self._resolve_text_type('js',
@@ -174,8 +184,13 @@ class RewriteContent:
                     charset = 'utf-8'
                     head_insert_str = head_insert_orig.encode(charset)
 
+                head_insert_buf = head_insert_str
+                #head_insert_str = to_native_str(head_insert_str)
+                head_insert_str = head_insert_str.decode('iso-8859-1')
+
+
             if wb_url.is_banner_only:
-                gen = self._head_insert_only_gen(head_insert_str,
+                gen = self._head_insert_only_gen(head_insert_buf,
                                                  stream,
                                                  first_buff)
 
@@ -231,12 +246,18 @@ class RewriteContent:
 
         return (status_headers, gen, True)
 
+    def handle_custom_rewrite(self, text_type, status_headers, stream, env):
+        # use rewritten headers, but no further rewriting needed
+        if text_type is None:
+            return (status_headers, self.stream_to_gen(stream), False)
+
     @staticmethod
     def _extract_html_charset(buff, status_headers):
         charset = None
         m = RewriteContent.CHARSET_REGEX.search(buff)
         if m:
             charset = m.group(1)
+            charset = to_native_str(charset)
         #    content_type = 'text/html; charset=' + charset
         #    status_headers.replace_header('content-type', content_type)
 
@@ -261,7 +282,7 @@ class RewriteContent:
 
         return mod, wrapped_stream
 
-    def _head_insert_only_gen(self, insert_str, stream, first_buff=''):
+    def _head_insert_only_gen(self, insert_str, stream, first_buff=b''):
         buff = first_buff
         max_len = 1024 - len(first_buff)
         while max_len > 0:
@@ -289,7 +310,7 @@ class RewriteContent:
     def _decode_buff(buff, stream, encoding):  # pragma: no coverage
         try:
             buff = buff.decode(encoding)
-        except UnicodeDecodeError, e:
+        except UnicodeDecodeError as e:
             # chunk may have cut apart unicode bytes -- add 1-3 bytes and retry
             for i in range(3):
                 buff += stream.read(1)
@@ -333,8 +354,8 @@ class RewriteContent:
 
             while True:
                 if buff:
-                    buff = rewrite_func(buff)
-                    yield buff
+                    buff = rewrite_func(buff.decode('iso-8859-1'))
+                    yield buff.encode('iso-8859-1')
 
                 buff = stream.read(RewriteContent.BUFF_SIZE)
                 # on 2.6, readline() (but not read()) throws an exception
@@ -349,7 +370,9 @@ class RewriteContent:
             # For adding a tail/handling final buffer
             buff = final_read_func()
             if buff:
-                yield buff
+                yield buff.encode('iso-8859-1')
 
         finally:
             stream.close()
+
+

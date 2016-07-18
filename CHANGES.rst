@@ -1,3 +1,84 @@
+pywb 0.31.0 changelist
+~~~~~~~~~~~~~~~~~~~~~~
+
+* HTML rewriting:
+   - preserve empty attrs while parsing, eg. ``<tag attr>`` instead of ``<tag attr="">``
+   - empty ``srcset`` attribute does not cause errors
+   - better error checking of empty attributes for all custom parsers
+
+* wombat/client side improvements:
+   - use ``postMessage()`` for inner replay frame -> outer frame updates
+   - Fix ``window.open()`` rewriting even if prototype is missing
+   - Fix double-slash in relative url rewriting
+   - ``Math.random()`` overrides uses correct window
+  
+* BufferedReader improvements:
+   - More lenient of partially decompressed data, return what was decompressed instead of raising exception.
+   - Support Brotli decompression, properly rewrite ``Content-Encoding: br``
+
+* Python 2/3 Compatibility:
+   - Decode all cdx fields to native string in py2
+  
+* BlockLoader improvements:
+   - support custom profile urls, eg. ``profile+http://`` which allow a custom profile to be selected if a profile loader is registered via ``BlockLoader.set_profile_loader()``
+  
+   - s3 loader: support profiles and AWS creds directly set in username/password of url
+
+* POST replay improvements:
+   - support ``multipart/form-data`` encoding same as ``x-www-form-urlencoded``
+   - support ``application/x-amf`` with experimental AMF rewriter (RewriteContentAMF rewriter)
+   - support generic post-data matching exact base64 encoded value.
+
+
+pywb 0.30.1 changelist
+~~~~~~~~~~~~~~~~~~~~~~
+
+* Rules: match rule for Twitter video.
+
+* Record Loader: Only parse ``http:`` and ``https:`` urls as HTTP in ``response``, ``request`` and ``revisit`` records.
+
+
+pywb 0.30.0 changelist
+~~~~~~~~~~~~~~~~~~~~~~
+
+* Support for Python 3.3+ in addition to Python 2.6+
+
+* statusheaders: ``to_str()`` and ``to_bytes()`` to reconstruct status line and headers, with option to exclude certain headers
+
+* cdxobject improvements:
+   - ``conv_to_json()`` for serializing to json, with optional list of fields
+   - ``to_json()`` and ``to_cdxj()``
+   - Default JSON serialization includes all fields, except starting with ``_``
+   - Default CDXJ serialization includes all fields, except urlkey and timestamp
+   - Comparison operators for cdxobject
+   - Reading cdxline as byte buffer, individual fields as strings (python 3)
+  
+* redis: full testing of ``zrangebylex`` with new fakeredis
+
+* timeutils: add ``datetime_to_iso_date``
+  
+* cdx indexing refactor: rename ``DefaultRecordIter`` -> ``DefaultRecordParser``, a callable which creates an iterator
+
+* warcrecord loader fully read streams with no content-length, don't force 204
+
+* cookie improvements:
+   - use httplib cookie pairs directly to avoid concatenated headers (eg. for ``Set-Cookie``)
+   - don't remove ``max-age`` and ``expires`` when in live rewriting mode
+   - convert `` UTC`` -> `` GMT`` in expires to avoid Python parsing issues
+   - remove ``secure`` only if not serving from https
+   - support custom cookie rewriter
+   
+* wombat/client side improvements:
+   - rewrite ``frameElement`` -> ``WB_wombat_frameElement``, set to null for top replay frame
+   - Allow changing of ``document.domain``
+   - Rewrite ``<form action>`` and <input @value>`` in ``rewrite_elem``
+ 
+* Tests: improved tests, replaced doctests of dict output to regular tests for improved compatibility with different python implementations
+  
+  
+
+
+
 pywb 0.11.5 changelist
 ~~~~~~~~~~~~~~~~~~~~~~
 

@@ -1,13 +1,17 @@
-from wbrequestresponse import WbResponse
+from pywb.framework.wbrequestresponse import WbResponse
 from pywb.utils.loaders import extract_client_cookie
 from pywb.utils.wbexception import WbException
 from pywb.utils.statusandheaders import StatusAndHeaders
 from pywb.rewrite.wburl import WbUrl
 
-from cache import create_cache
-from basehandlers import WbUrlHandler
+from pywb.framework.cache import create_cache
+from pywb.framework.basehandlers import WbUrlHandler
 
-import urlparse
+from six.moves.urllib.parse import parse_qs, urlsplit
+import six
+
+from pywb.utils.loaders import to_native_str
+
 import base64
 import os
 import json
@@ -17,7 +21,7 @@ import json
 class BaseCollResolver(object):
     def __init__(self, routes, config):
         self.routes = routes
-        self.use_default_coll = config.get('use_default_coll', True)
+        self.use_default_coll = config.get('use_default_coll')
 
     @property
     def pre_connect(self):
@@ -54,9 +58,10 @@ class BaseCollResolver(object):
 
         # if 'use_default_coll', find first WbUrl-handling collection
         elif self.use_default_coll:
-            for route in self.routes:
-                if isinstance(route.handler, WbUrlHandler):
-                    return route, route.path, matcher, ts, None
+            raise Exception('use_default_coll: true no longer supported, please specify collection name')
+            #for route in self.routes:
+            #    if isinstance(route.handler, WbUrlHandler):
+            #        return route, route.path, matcher, ts, None
 
         # otherwise, return the appropriate coll selection response
         else:
@@ -100,7 +105,7 @@ class ProxyAuthResolver(BaseCollResolver):
 
         value = self.auth_msg
 
-        return WbResponse(status_headers, value=[value])
+        return WbResponse(status_headers, value=[value.encode('utf-8')])
 
     @staticmethod
     def read_basic_auth_coll(value):
@@ -111,8 +116,8 @@ class ProxyAuthResolver(BaseCollResolver):
         if len(parts) != 2:
             return ''
 
-        user_pass = base64.b64decode(parts[1])
-        return user_pass.split(':')[0]
+        user_pass = base64.b64decode(parts[1].encode('utf-8'))
+        return to_native_str(user_pass.split(b':')[0])
 
 
 #=================================================================
@@ -130,7 +135,7 @@ class IPCacheResolver(BaseCollResolver):
         ip = env['REMOTE_ADDR']
         qs = env.get('pywb.proxy_query')
         if qs:
-            res = urlparse.parse_qs(qs)
+            res = parse_qs(qs)
 
             if 'ip' in res:
                 ip = res['ip'][0]
@@ -145,7 +150,7 @@ class IPCacheResolver(BaseCollResolver):
         qs = env.get('pywb.proxy_query')
 
         if qs:
-            res = urlparse.parse_qs(qs)
+            res = parse_qs(qs)
 
             if 'ip' in res:
                 ip = res['ip'][0]
@@ -223,7 +228,7 @@ class CookieResolver(BaseCollResolver):
 
     def handle_magic_page(self, env):
         request_url = env['REL_REQUEST_URI']
-        parts = urlparse.urlsplit(request_url)
+        parts = urlsplit(request_url)
         server_name = env['pywb.proxy_host']
 
         path_url = parts.path[1:]
@@ -309,7 +314,7 @@ class CookieResolver(BaseCollResolver):
         if '://' not in path_url:
             path_url = 'http://' + path_url
 
-        path_parts = urlparse.urlsplit(path_url)
+        path_parts = urlsplit(path_url)
 
         new_url = path_parts.path[1:]
         if path_parts.query:
@@ -356,14 +361,14 @@ class CookieResolver(BaseCollResolver):
             return sesh_id
 
         sesh_id = base64.b32encode(os.urandom(5)).lower()
-        return sesh_id
+        return to_native_str(sesh_id)
 
     def make_redir_response(self, url, headers=None):
         if not headers:
             headers = []
 
         if self.extra_headers:
-            for name, value in self.extra_headers.iteritems():
+            for name, value in six.iteritems(self.extra_headers):
                 headers.append((name, value))
 
         return WbResponse.redir_response(url, headers=headers)

@@ -8,7 +8,8 @@ import mimetypes
 import logging
 import os
 
-from urlparse import urlsplit
+from six.moves.urllib.parse import urlsplit
+import six
 
 from pywb.utils.loaders import is_http, LimitReader, LocalFileLoader, to_file_url
 from pywb.utils.loaders import extract_client_cookie
@@ -16,7 +17,7 @@ from pywb.utils.timeutils import timestamp_now
 from pywb.utils.statusandheaders import StatusAndHeaders
 from pywb.utils.canonicalize import canonicalize
 
-from rewrite_content import RewriteContent
+from pywb.rewrite.rewrite_content import RewriteContent
 
 
 #=================================================================
@@ -60,7 +61,7 @@ class LiveRewriter(object):
         splits = urlsplit(url)
         has_cookies = False
 
-        for name, value in env.iteritems():
+        for name, value in six.iteritems(env):
             if name == 'HTTP_HOST':
                 name = 'Host'
                 value = splits.netloc
@@ -76,6 +77,9 @@ class LiveRewriter(object):
                     value = cookie_val
 
             elif name == 'HTTP_REFERER':
+                continue
+
+            elif name == 'HTTP_X_PYWB_REQUESTED_WITH':
                 continue
 
             elif name == 'HTTP_X_FORWARDED_PROTO':
@@ -164,7 +168,21 @@ class LiveRewriter(object):
         statusline = str(response.status_code) + ' ' + response.reason
 
         headers = response.headers.items()
+
         stream = response.raw
+
+        try:  #pragma: no cover
+        #PY 3
+            headers = stream._original_response.headers._headers
+        except:  #pragma: no cover
+        #PY 2
+            headers = []
+            resp_headers = stream._original_response.msg.headers
+            for h in resp_headers:
+                n, v = h.split(':', 1)
+                n = n.strip()
+                v = v.strip()
+                headers.append((n, v))
 
         status_headers = StatusAndHeaders(statusline, headers)
 
@@ -260,7 +278,7 @@ class LiveRewriter(object):
 
         status_headers, gen, is_rewritten = result
 
-        buff = ''.join(gen)
+        buff = b''.join(gen)
 
         return (status_headers, buff)
 

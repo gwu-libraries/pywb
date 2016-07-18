@@ -4,19 +4,13 @@ from pywb.framework.cache import create_cache
 from pywb.rewrite.rewrite_live import LiveRewriter
 from pywb.rewrite.wburl import WbUrl
 
-from handlers import StaticHandler, SearchPageWbUrlHandler
-from views import HeadInsertView
+from pywb.webapp.handlers import StaticHandler, SearchPageWbUrlHandler
+from pywb.webapp.views import HeadInsertView
 
-from pywb.utils.wbexception import WbException
+from pywb.utils.wbexception import LiveResourceException
 
 import json
 import hashlib
-
-
-#=================================================================
-class LiveResourceException(WbException):
-    def status(self):
-        return '400 Bad Live Resource'
 
 
 #=================================================================
@@ -59,8 +53,8 @@ class RewriteHandler(SearchPageWbUrlHandler):
 
         except Exception as exc:
             import traceback
-            err_details = traceback.format_exc(exc)
-            print err_details
+            err_details = traceback.format_exc()
+            print(err_details)
 
             url = wbrequest.wb_url.url
             msg = 'Could not load the url from the live web: ' + url
@@ -174,7 +168,7 @@ class RewriteHandler(SearchPageWbUrlHandler):
     @staticmethod
     def create_cache_key(prefix, url):
         hash_ = hashlib.md5()
-        hash_.update(url)
+        hash_.update(url.encode('utf-8'))
         key = hash_.hexdigest()
         key = prefix + key
         return key

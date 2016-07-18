@@ -3,17 +3,20 @@ from __future__ import absolute_import
 from pywb.framework.wbrequestresponse import WbResponse, WbRequest
 from pywb.framework.archivalrouter import ArchivalRouter
 
-import urlparse
+from six.moves.urllib.parse import urlsplit
 import base64
 
 import socket
 import ssl
+
+from io import BytesIO
 
 from pywb.rewrite.url_rewriter import SchemeOnlyUrlRewriter, UrlRewriter
 from pywb.rewrite.rewrite_content import RewriteContent
 from pywb.utils.wbexception import BadRequestException
 
 from pywb.utils.bufferedreaders import BufferedReader
+from pywb.utils.loaders import to_native_str
 
 from pywb.framework.proxy_resolvers import ProxyAuthResolver, CookieResolver, IPCacheResolver
 
@@ -164,7 +167,7 @@ class ProxyRouter(object):
 
             url = env['REL_REQUEST_URI']
         else:
-            parts = urlparse.urlsplit(env['REL_REQUEST_URI'])
+            parts = urlsplit(env['REL_REQUEST_URI'])
             hostport = parts.netloc.split(':', 1)
             env['pywb.proxy_host'] = hostport[0]
             env['pywb.proxy_port'] = hostport[1] if len(hostport) == 2 else ''
@@ -270,16 +273,15 @@ class ProxyRouter(object):
 
     @staticmethod
     def _chunk_encode(orig_iter):
-        for buff in orig_iter:
-            chunk = bytes(buff)
+        for chunk in orig_iter:
             if not len(chunk):
                 continue
-            chunk_len = '%X\r\n' % len(chunk)
+            chunk_len = b'%X\r\n' % len(chunk)
             yield chunk_len
             yield chunk
-            yield '\r\n'
+            yield b'\r\n'
 
-        yield '0\r\n\r\n'
+        yield b'0\r\n\r\n'
 
     @staticmethod
     def _buffer_response(status_headers, iterator):
@@ -287,7 +289,6 @@ class ProxyRouter(object):
         size = 0
 
         for buff in iterator:
-            buff = bytes(buff)
             size += len(buff)
             out.write(buff)
 
@@ -310,8 +311,11 @@ class ProxyRouter(object):
                 import uwsgi
                 fd = uwsgi.connection_fd()
                 conn = socket.fromfd(fd, socket.AF_INET, socket.SOCK_STREAM)
-                sock = socket.socket(_sock=conn)
-            except Exception:
+                try:
+                    sock = socket.socket(_sock=conn)
+                except:
+                    sock = conn
+            except Exception as e:
                 pass
         elif env.get('gunicorn.socket'):  # pragma: no cover
             sock = env['gunicorn.socket']
@@ -319,8 +323,12 @@ class ProxyRouter(object):
         if not sock:
             # attempt to find socket from wsgi.input
             input_ = env.get('wsgi.input')
-            if input_ and hasattr(input_, '_sock'):
-                sock = socket.socket(_sock=input_._sock)
+            if input_:
+                if hasattr(input_, '_sock'):  # pragma: no cover
+                    raw = input_._sock
+                    sock = socket.socket(_sock=raw)  # pragma: no cover
+                elif hasattr(input_, 'raw'):
+                    sock = input_.raw._sock
 
         return sock
 
@@ -330,10 +338,10 @@ class ProxyRouter(object):
             return WbResponse.text_response('HTTPS Proxy Not Supported',
                                             '405 HTTPS Proxy Not Supported')
 
-        sock.send('HTTP/1.0 200 Connection Established\r\n')
-        sock.send('Proxy-Connection: close\r\n')
-        sock.send('Server: pywb proxy\r\n')
-        sock.send('\r\n')
+        sock.send(b'HTTP/1.0 200 Connection Established\r\n')
+        sock.send(b'Proxy-Connection: close\r\n')
+        sock.send(b'Server: pywb proxy\r\n')
+        sock.send(b'\r\n')
 
         hostname, port = env['REL_REQUEST_URI'].split(':')
 
@@ -354,7 +362,7 @@ class ProxyRouter(object):
 
             buffreader = BufferedReader(ssl_sock, block_size=self.BLOCK_SIZE)
 
-            statusline = buffreader.readline().rstrip()
+            statusline = to_native_str(buffreader.readline().rstrip())
 
         except Exception as se:
             raise BadRequestException(se.message)
@@ -383,7 +391,7 @@ class ProxyRouter(object):
         env['pywb.proxy_query'] = env['QUERY_STRING']
 
         while True:
-            line = buffreader.readline()
+            line = to_native_str(buffreader.readline())
             if line:
                 line = line.rstrip()
 
@@ -404,12 +412,15 @@ class ProxyRouter(object):
 
             env[name] = value
 
-        remain = buffreader.rem_length()
-        if remain > 0:
-            remainder = buffreader.read(self.BLOCK_SIZE)
-            env['wsgi.input'] = BufferedReader(ssl_sock,
-                                               block_size=self.BLOCK_SIZE,
-                                               starting_data=remainder)
+        env['wsgi.input'] = buffreader
+        #remain = buffreader.rem_length()
+        #if remain > 0:
+            #remainder = buffreader.read()
+            #env['wsgi.input'] = BufferedReader(BytesIO(remainder))
+            #remainder = buffreader.read(self.BLOCK_SIZE)
+            #env['wsgi.input'] = BufferedReader(ssl_sock,
+            #                                   block_size=self.BLOCK_SIZE,
+            #                                   starting_data=remainder)
 
     def handle_cert_install(self, env):
         if env['pywb.proxy_req_uri'] in ('/', '/index.html', '/index.html'):
@@ -425,14 +436,16 @@ class ProxyRouter(object):
             if not self.ca:
                 return None
 
-            buff = ''
+            buff = b''
             with open(self.ca.ca_file, 'rb') as fh:
                 buff = fh.read()
 
             content_type = 'application/x-x509-ca-cert'
+            headers = [('Content-Length', str(len(buff)))]
 
-            return WbResponse.text_response(buff,
-                                            content_type=content_type)
+            return WbResponse.bin_stream([buff],
+                                         content_type=content_type,
+                                         headers=headers)
 
         elif env['pywb.proxy_req_uri'] == self.CERT_DL_P12:
             if not self.ca:
@@ -441,6 +454,8 @@ class ProxyRouter(object):
             buff = self.ca.get_root_PKCS12()
 
             content_type = 'application/x-pkcs12'
+            headers = [('Content-Length', str(len(buff)))]
 
-            return WbResponse.text_response(buff,
-                                            content_type=content_type)
+            return WbResponse.bin_stream([buff],
+                                         content_type=content_type,
+                                         headers=headers)
